@@ -60,7 +60,7 @@ public abstract class AbstractTransactionalDatabaseClientIntegrationTests extend
 	/**
 	 * Returns the the CREATE TABLE statement for table {@code legoset} with the following three columns:
 	 * <ul>
-	 * <li>id integer (primary key), not null</li>
+	 * <li>id integer (primary key), not null, auto-increment</li>
 	 * <li>name varchar(255), nullable</li>
 	 * <li>manual integer, nullable</li>
 	 * </ul>

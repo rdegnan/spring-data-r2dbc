@@ -8,7 +8,7 @@ package org.springframework.data.r2dbc.testing;
 public class PostgresTestSupport {
 
 	public static String CREATE_TABLE_LEGOSET = "CREATE TABLE IF NOT EXISTS legoset (\n" //
-			+ "    id          integer CONSTRAINT id PRIMARY KEY,\n" //
+			+ "    id          serial CONSTRAINT id PRIMARY KEY,\n" //
 			+ "    name        varchar(255) NOT NULL,\n" //
 			+ "    manual      integer NULL\n" //
 			+ ");";
