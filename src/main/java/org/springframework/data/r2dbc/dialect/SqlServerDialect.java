@@ -15,6 +15,18 @@ public class SqlServerDialect implements Dialect {
 	private static final BindMarkersFactory NAMED = BindMarkersFactory.named("@", "P", 32,
 			SqlServerDialect::filterBindMarker);
 
+	private static final LimitClause LIMIT_CLAUSE = new LimitClause() {
+		@Override
+		public String getClause(long limit) {
+			return "FETCH NEXT " + limit + " ROWS ONLY";
+		}
+
+		@Override
+		public Position getClausePosition() {
+			return Position.END;
+		}
+	};
+
 	@Override
 	public BindMarkersFactory getBindMarkersFactory() {
 		return NAMED;
@@ -23,6 +35,11 @@ public class SqlServerDialect implements Dialect {
 	@Override
 	public String returnGeneratedKeys() {
 		return "select SCOPE_IDENTITY() AS GENERATED_KEYS";
+	}
+
+	@Override
+	public LimitClause limit() {
+		return LIMIT_CLAUSE;
 	}
 
 	private static String filterBindMarker(CharSequence input) {

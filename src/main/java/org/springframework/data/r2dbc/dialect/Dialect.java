@@ -22,4 +22,10 @@ public interface Dialect {
 	 */
 	String returnGeneratedKeys();
 
+	/**
+	 * Return the {@link LimitClause} used by this dialect.
+	 *
+	 * @return the {@link LimitClause} used by this dialect.
+	 */
+	LimitClause limit();
 }

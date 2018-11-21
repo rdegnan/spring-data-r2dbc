@@ -17,7 +17,6 @@ package org.springframework.data.r2dbc.repository.support;
 
 import static org.assertj.core.api.Assertions.*;
 
-import io.r2dbc.spi.ConnectionFactory;
 import lombok.AllArgsConstructor;
 import lombok.Data;
 import lombok.NoArgsConstructor;
@@ -32,12 +31,11 @@ import java.util.Map;
 
 import org.junit.Before;
 import org.junit.Test;
-import org.junit.runner.RunWith;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.context.annotation.Configuration;
+import org.springframework.dao.DataAccessException;
 import org.springframework.data.annotation.Id;
-import org.springframework.data.r2dbc.config.AbstractR2dbcConfiguration;
 import org.springframework.data.r2dbc.function.DatabaseClient;
+import org.springframework.data.r2dbc.function.ReactiveDataAccessStrategy;
 import org.springframework.data.r2dbc.function.convert.MappingR2dbcConverter;
 import org.springframework.data.r2dbc.testing.R2dbcIntegrationTestSupport;
 import org.springframework.data.relational.core.conversion.BasicRelationalConverter;
@@ -47,33 +45,22 @@ import org.springframework.data.relational.core.mapping.Table;
 import org.springframework.data.relational.repository.query.RelationalEntityInformation;
 import org.springframework.data.relational.repository.support.MappingRelationalEntityInformation;
 import org.springframework.jdbc.core.JdbcTemplate;
-import org.springframework.test.context.ContextConfiguration;
-import org.springframework.test.context.junit4.SpringRunner;
 
 /**
- * Integration tests for {@link SimpleR2dbcRepository}.
+ * Abstract integration tests for {@link SimpleR2dbcRepository} to be ran against various databases.
  *
  * @author Mark Paluch
  */
-@RunWith(SpringRunner.class)
-@ContextConfiguration
-public class SimpleR2dbcRepositoryIntegrationTests extends R2dbcIntegrationTestSupport {
+public abstract class AbstractSimpleR2dbcRepositoryIntegrationTests extends R2dbcIntegrationTestSupport {
 
 	@Autowired private DatabaseClient databaseClient;
 
 	@Autowired private RelationalMappingContext mappingContext;
 
+	@Autowired private ReactiveDataAccessStrategy strategy;
+
 	private SimpleR2dbcRepository<LegoSet, Integer> repository;
 	private JdbcTemplate jdbc;
-
-	@Configuration
-	static class IntegrationTestConfiguration extends AbstractR2dbcConfiguration {
-
-		@Override
-		public ConnectionFactory connectionFactory() {
-			return createConnectionFactory();
-		}
-	}
 
 	@Before
 	public void before() {
@@ -84,16 +71,27 @@ public class SimpleR2dbcRepositoryIntegrationTests extends R2dbcIntegrationTestS
 				(RelationalPersistentEntity<LegoSet>) mappingContext.getRequiredPersistentEntity(LegoSet.class));
 
 		this.repository = new SimpleR2dbcRepository<>(entityInformation, databaseClient,
-				new MappingR2dbcConverter(new BasicRelationalConverter(mappingContext)));
+				new MappingR2dbcConverter(new BasicRelationalConverter(mappingContext)), strategy);
 
 		this.jdbc = createJdbcTemplate(createDataSource());
+		try {
+			this.jdbc.execute("DROP TABLE legoset");
+		} catch (DataAccessException e) {}
 
-		String tableToCreate = "CREATE TABLE IF NOT EXISTS repo_legoset (\n" + "    id          SERIAL PRIMARY KEY,\n"
-				+ "    name        varchar(255) NOT NULL,\n" + "    manual      integer NULL\n" + ");";
-
-		this.jdbc.execute("DROP TABLE IF EXISTS repo_legoset");
-		this.jdbc.execute(tableToCreate);
+		this.jdbc.execute(getCreateTableStatement());
 	}
+
+	/**
+	 * Returns the the CREATE TABLE statement for table {@code legoset} with the following three columns:
+	 * <ul>
+	 * <li>id integer (primary key), not null, auto-increment</li>
+	 * <li>name varchar(255), nullable</li>
+	 * <li>manual integer, nullable</li>
+	 * </ul>
+	 *
+	 * @return the CREATE TABLE statement for table {@code legoset} with three columns.
+	 */
+	protected abstract String getCreateTableStatement();
 
 	@Test
 	public void shouldSaveNewObject() {
@@ -107,14 +105,14 @@ public class SimpleR2dbcRepositoryIntegrationTests extends R2dbcIntegrationTestS
 					assertThat(actual.getId()).isNotNull();
 				}).verifyComplete();
 
-		Map<String, Object> map = jdbc.queryForMap("SELECT * FROM repo_legoset");
+		Map<String, Object> map = jdbc.queryForMap("SELECT * FROM legoset");
 		assertThat(map).containsEntry("name", "SCHAUFELRADBAGGER").containsEntry("manual", 12).containsKey("id");
 	}
 
 	@Test
 	public void shouldUpdateObject() {
 
-		jdbc.execute("INSERT INTO repo_legoset (id, name, manual) VALUES(42055, 'SCHAUFELRADBAGGER', 12)");
+		jdbc.execute("INSERT INTO legoset (id, name, manual) VALUES(42055, 'SCHAUFELRADBAGGER', 12)");
 
 		LegoSet legoSet = new LegoSet(42055, "SCHAUFELRADBAGGER", 12);
 		legoSet.setManual(14);
@@ -124,7 +122,7 @@ public class SimpleR2dbcRepositoryIntegrationTests extends R2dbcIntegrationTestS
 				.expectNextCount(1) //
 				.verifyComplete();
 
-		Map<String, Object> map = jdbc.queryForMap("SELECT * FROM repo_legoset");
+		Map<String, Object> map = jdbc.queryForMap("SELECT * FROM legoset");
 		assertThat(map).containsEntry("name", "SCHAUFELRADBAGGER").containsEntry("manual", 14).containsKey("id");
 	}
 
@@ -145,7 +143,7 @@ public class SimpleR2dbcRepositoryIntegrationTests extends R2dbcIntegrationTestS
 				.expectNext(15) //
 				.verifyComplete();
 
-		Map<String, Object> map = jdbc.queryForMap("SELECT COUNT(*) FROM repo_legoset");
+		Map<String, Object> map = jdbc.queryForMap("SELECT COUNT(*) FROM legoset");
 		assertThat(map).containsEntry("count", 4L);
 	}
 
@@ -160,14 +158,14 @@ public class SimpleR2dbcRepositoryIntegrationTests extends R2dbcIntegrationTestS
 				.expectNextCount(2) //
 				.verifyComplete();
 
-		Map<String, Object> map = jdbc.queryForMap("SELECT COUNT(*) FROM repo_legoset");
+		Map<String, Object> map = jdbc.queryForMap("SELECT COUNT(*) FROM legoset");
 		assertThat(map).containsEntry("count", 2L);
 	}
 
 	@Test
 	public void shouldFindById() {
 
-		jdbc.execute("INSERT INTO repo_legoset (id, name, manual) VALUES(42055, 'SCHAUFELRADBAGGER', 12)");
+		jdbc.execute("INSERT INTO legoset (id, name, manual) VALUES(42055, 'SCHAUFELRADBAGGER', 12)");
 
 		repository.findById(42055) //
 				.as(StepVerifier::create) //
@@ -182,7 +180,7 @@ public class SimpleR2dbcRepositoryIntegrationTests extends R2dbcIntegrationTestS
 	@Test
 	public void shouldExistsById() {
 
-		jdbc.execute("INSERT INTO repo_legoset (id, name, manual) VALUES(42055, 'SCHAUFELRADBAGGER', 12)");
+		jdbc.execute("INSERT INTO legoset (id, name, manual) VALUES(42055, 'SCHAUFELRADBAGGER', 12)");
 
 		repository.existsById(42055) //
 				.as(StepVerifier::create) //
@@ -198,7 +196,7 @@ public class SimpleR2dbcRepositoryIntegrationTests extends R2dbcIntegrationTestS
 	@Test
 	public void shouldExistsByIdPublisher() {
 
-		jdbc.execute("INSERT INTO repo_legoset (id, name, manual) VALUES(42055, 'SCHAUFELRADBAGGER', 12)");
+		jdbc.execute("INSERT INTO legoset (id, name, manual) VALUES(42055, 'SCHAUFELRADBAGGER', 12)");
 
 		repository.existsById(Mono.just(42055)) //
 				.as(StepVerifier::create) //
@@ -214,8 +212,8 @@ public class SimpleR2dbcRepositoryIntegrationTests extends R2dbcIntegrationTestS
 	@Test
 	public void shouldFindByAll() {
 
-		jdbc.execute("INSERT INTO repo_legoset (id, name, manual) VALUES(42055, 'SCHAUFELRADBAGGER', 12)");
-		jdbc.execute("INSERT INTO repo_legoset (id, name, manual) VALUES(42064, 'FORSCHUNGSSCHIFF', 13)");
+		jdbc.execute("INSERT INTO legoset (id, name, manual) VALUES(42055, 'SCHAUFELRADBAGGER', 12)");
+		jdbc.execute("INSERT INTO legoset (id, name, manual) VALUES(42064, 'FORSCHUNGSSCHIFF', 13)");
 
 		repository.findAll() //
 				.map(LegoSet::getName) //
@@ -230,8 +228,8 @@ public class SimpleR2dbcRepositoryIntegrationTests extends R2dbcIntegrationTestS
 	@Test
 	public void shouldFindAllByIdUsingIterable() {
 
-		jdbc.execute("INSERT INTO repo_legoset (id, name, manual) VALUES(42055, 'SCHAUFELRADBAGGER', 12)");
-		jdbc.execute("INSERT INTO repo_legoset (id, name, manual) VALUES(42064, 'FORSCHUNGSSCHIFF', 13)");
+		jdbc.execute("INSERT INTO legoset (id, name, manual) VALUES(42055, 'SCHAUFELRADBAGGER', 12)");
+		jdbc.execute("INSERT INTO legoset (id, name, manual) VALUES(42064, 'FORSCHUNGSSCHIFF', 13)");
 
 		repository.findAllById(Arrays.asList(42055, 42064)) //
 				.map(LegoSet::getName) //
@@ -246,8 +244,8 @@ public class SimpleR2dbcRepositoryIntegrationTests extends R2dbcIntegrationTestS
 	@Test
 	public void shouldFindAllByIdUsingPublisher() {
 
-		jdbc.execute("INSERT INTO repo_legoset (id, name, manual) VALUES(42055, 'SCHAUFELRADBAGGER', 12)");
-		jdbc.execute("INSERT INTO repo_legoset (id, name, manual) VALUES(42064, 'FORSCHUNGSSCHIFF', 13)");
+		jdbc.execute("INSERT INTO legoset (id, name, manual) VALUES(42055, 'SCHAUFELRADBAGGER', 12)");
+		jdbc.execute("INSERT INTO legoset (id, name, manual) VALUES(42064, 'FORSCHUNGSSCHIFF', 13)");
 
 		repository.findAllById(Flux.just(42055, 42064)) //
 				.map(LegoSet::getName) //
@@ -267,8 +265,8 @@ public class SimpleR2dbcRepositoryIntegrationTests extends R2dbcIntegrationTestS
 				.expectNext(0L) //
 				.verifyComplete();
 
-		jdbc.execute("INSERT INTO repo_legoset (id, name, manual) VALUES(42055, 'SCHAUFELRADBAGGER', 12)");
-		jdbc.execute("INSERT INTO repo_legoset (id, name, manual) VALUES(42064, 'FORSCHUNGSSCHIFF', 13)");
+		jdbc.execute("INSERT INTO legoset (id, name, manual) VALUES(42055, 'SCHAUFELRADBAGGER', 12)");
+		jdbc.execute("INSERT INTO legoset (id, name, manual) VALUES(42064, 'FORSCHUNGSSCHIFF', 13)");
 
 		repository.count() //
 				.as(StepVerifier::create) //
@@ -279,33 +277,33 @@ public class SimpleR2dbcRepositoryIntegrationTests extends R2dbcIntegrationTestS
 	@Test
 	public void shouldDeleteById() {
 
-		jdbc.execute("INSERT INTO repo_legoset (id, name, manual) VALUES(42055, 'SCHAUFELRADBAGGER', 12)");
+		jdbc.execute("INSERT INTO legoset (id, name, manual) VALUES(42055, 'SCHAUFELRADBAGGER', 12)");
 
 		repository.deleteById(42055) //
 				.as(StepVerifier::create) //
 				.verifyComplete();
 
-		Map<String, Object> map = jdbc.queryForMap("SELECT COUNT(*) FROM repo_legoset");
+		Map<String, Object> map = jdbc.queryForMap("SELECT COUNT(*) FROM legoset");
 		assertThat(map).containsEntry("count", 0L);
 	}
 
 	@Test
 	public void shouldDeleteByIdPublisher() {
 
-		jdbc.execute("INSERT INTO repo_legoset (id, name, manual) VALUES(42055, 'SCHAUFELRADBAGGER', 12)");
+		jdbc.execute("INSERT INTO legoset (id, name, manual) VALUES(42055, 'SCHAUFELRADBAGGER', 12)");
 
 		repository.deleteById(Mono.just(42055)) //
 				.as(StepVerifier::create) //
 				.verifyComplete();
 
-		Map<String, Object> map = jdbc.queryForMap("SELECT COUNT(*) FROM repo_legoset");
+		Map<String, Object> map = jdbc.queryForMap("SELECT COUNT(*) FROM legoset");
 		assertThat(map).containsEntry("count", 0L);
 	}
 
 	@Test
 	public void shouldDelete() {
 
-		jdbc.execute("INSERT INTO repo_legoset (id, name, manual) VALUES(42055, 'SCHAUFELRADBAGGER', 12)");
+		jdbc.execute("INSERT INTO legoset (id, name, manual) VALUES(42055, 'SCHAUFELRADBAGGER', 12)");
 
 		LegoSet legoSet = new LegoSet(42055, "SCHAUFELRADBAGGER", 12);
 
@@ -313,14 +311,14 @@ public class SimpleR2dbcRepositoryIntegrationTests extends R2dbcIntegrationTestS
 				.as(StepVerifier::create) //
 				.verifyComplete();
 
-		Map<String, Object> map = jdbc.queryForMap("SELECT COUNT(*) FROM repo_legoset");
+		Map<String, Object> map = jdbc.queryForMap("SELECT COUNT(*) FROM legoset");
 		assertThat(map).containsEntry("count", 0L);
 	}
 
 	@Test
 	public void shouldDeleteAllUsingIterable() {
 
-		jdbc.execute("INSERT INTO repo_legoset (id, name, manual) VALUES(42055, 'SCHAUFELRADBAGGER', 12)");
+		jdbc.execute("INSERT INTO legoset (id, name, manual) VALUES(42055, 'SCHAUFELRADBAGGER', 12)");
 
 		LegoSet legoSet = new LegoSet(42055, "SCHAUFELRADBAGGER", 12);
 
@@ -328,14 +326,14 @@ public class SimpleR2dbcRepositoryIntegrationTests extends R2dbcIntegrationTestS
 				.as(StepVerifier::create) //
 				.verifyComplete();
 
-		Map<String, Object> map = jdbc.queryForMap("SELECT COUNT(*) FROM repo_legoset");
+		Map<String, Object> map = jdbc.queryForMap("SELECT COUNT(*) FROM legoset");
 		assertThat(map).containsEntry("count", 0L);
 	}
 
 	@Test
 	public void shouldDeleteAllUsingPublisher() {
 
-		jdbc.execute("INSERT INTO repo_legoset (id, name, manual) VALUES(42055, 'SCHAUFELRADBAGGER', 12)");
+		jdbc.execute("INSERT INTO legoset (id, name, manual) VALUES(42055, 'SCHAUFELRADBAGGER', 12)");
 
 		LegoSet legoSet = new LegoSet(42055, "SCHAUFELRADBAGGER", 12);
 
@@ -343,12 +341,12 @@ public class SimpleR2dbcRepositoryIntegrationTests extends R2dbcIntegrationTestS
 				.as(StepVerifier::create) //
 				.verifyComplete();
 
-		Map<String, Object> map = jdbc.queryForMap("SELECT COUNT(*) FROM repo_legoset");
+		Map<String, Object> map = jdbc.queryForMap("SELECT COUNT(*) FROM legoset");
 		assertThat(map).containsEntry("count", 0L);
 	}
 
 	@Data
-	@Table("repo_legoset")
+	@Table("legoset")
 	@AllArgsConstructor
 	@NoArgsConstructor
 	static class LegoSet {

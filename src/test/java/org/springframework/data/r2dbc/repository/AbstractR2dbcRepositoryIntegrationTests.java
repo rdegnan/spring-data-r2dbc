@@ -142,13 +142,12 @@ public abstract class AbstractR2dbcRepositoryIntegrationTests extends R2dbcInteg
 	@Test
 	public void shouldInsertItemsTransactional() {
 
+		DefaultReactiveDataAccessStrategy dataAccessStrategy = new DefaultReactiveDataAccessStrategy(
+				PostgresDialect.INSTANCE, new BasicRelationalConverter(mappingContext));
 		TransactionalDatabaseClient client = TransactionalDatabaseClient.builder()
-				.connectionFactory(createConnectionFactory())
-				.dataAccessStrategy(new DefaultReactiveDataAccessStrategy(PostgresDialect.INSTANCE,
-						new BasicRelationalConverter(mappingContext)))
-				.build();
+				.connectionFactory(createConnectionFactory()).dataAccessStrategy(dataAccessStrategy).build();
 
-		LegoSetRepository transactionalRepository = new R2dbcRepositoryFactory(client, mappingContext)
+		LegoSetRepository transactionalRepository = new R2dbcRepositoryFactory(client, mappingContext, dataAccessStrategy)
 				.getRepository(getRepositoryInterfaceType());
 
 		LegoSet legoSet1 = new LegoSet(null, "SCHAUFELRADBAGGER", 12);

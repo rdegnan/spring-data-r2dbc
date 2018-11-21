@@ -26,6 +26,7 @@ import java.util.function.BiFunction;
 import org.springframework.core.convert.ConversionService;
 import org.springframework.data.mapping.PersistentPropertyAccessor;
 import org.springframework.data.mapping.context.MappingContext;
+import org.springframework.data.relational.core.conversion.BasicRelationalConverter;
 import org.springframework.data.relational.core.conversion.RelationalConverter;
 import org.springframework.data.relational.core.mapping.RelationalPersistentEntity;
 import org.springframework.data.relational.core.mapping.RelationalPersistentProperty;
@@ -41,7 +42,25 @@ public class MappingR2dbcConverter {
 
 	private final RelationalConverter relationalConverter;
 
+	/**
+	 * Creates a new {@link MappingR2dbcConverter} given {@link MappingContext}.
+	 *
+	 * @param context must not be {@literal null}.
+	 */
+	public MappingR2dbcConverter(
+			MappingContext<? extends RelationalPersistentEntity<?>, ? extends RelationalPersistentProperty> context) {
+		this(new BasicRelationalConverter(context));
+	}
+
+	/**
+	 * Creates a new {@link MappingR2dbcConverter} given {@link RelationalConverter}.
+	 *
+	 * @param converter must not be {@literal null}.
+	 */
 	public MappingR2dbcConverter(RelationalConverter converter) {
+
+		Assert.notNull(converter, "RelationalConverter must not be null!");
+
 		this.relationalConverter = converter;
 	}
 

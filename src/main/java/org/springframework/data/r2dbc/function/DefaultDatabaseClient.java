@@ -767,7 +767,7 @@ class DefaultDatabaseClient implements DatabaseClient, ConnectionAccessor {
 			List<String> projectedFields;
 
 			if (this.projectedFields.isEmpty()) {
-				projectedFields = dataAccessStrategy.getAllFields(typeToRead);
+				projectedFields = dataAccessStrategy.getAllColumns(typeToRead);
 			} else {
 				projectedFields = this.projectedFields;
 			}

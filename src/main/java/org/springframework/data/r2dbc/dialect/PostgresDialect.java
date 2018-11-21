@@ -14,6 +14,19 @@ public class PostgresDialect implements Dialect {
 
 	private static final BindMarkersFactory INDEXED = BindMarkersFactory.indexed("$", 1);
 
+	private static final LimitClause LIMIT_CLAUSE = new LimitClause() {
+
+		@Override
+		public String getClause(long limit) {
+			return "LIMIT " + limit;
+		}
+
+		@Override
+		public Position getClausePosition() {
+			return Position.END;
+		}
+	};
+
 	@Override
 	public BindMarkersFactory getBindMarkersFactory() {
 		return INDEXED;
@@ -22,5 +35,10 @@ public class PostgresDialect implements Dialect {
 	@Override
 	public String returnGeneratedKeys() {
 		return "RETURNING *";
+	}
+
+	@Override
+	public LimitClause limit() {
+		return LIMIT_CLAUSE;
 	}
 }

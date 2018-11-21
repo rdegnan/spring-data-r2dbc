@@ -15,25 +15,34 @@
  */
 package org.springframework.data.r2dbc.repository.support;
 
+import io.r2dbc.spi.Statement;
+import lombok.NonNull;
+import lombok.RequiredArgsConstructor;
+import reactor.core.publisher.Flux;
+import reactor.core.publisher.Mono;
+
+import java.util.Collections;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
+import java.util.function.BiConsumer;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 
-import lombok.NonNull;
-import lombok.RequiredArgsConstructor;
 import org.reactivestreams.Publisher;
+import org.springframework.data.r2dbc.function.BindIdOperation;
+import org.springframework.data.r2dbc.function.BindableOperation;
 import org.springframework.data.r2dbc.function.DatabaseClient;
 import org.springframework.data.r2dbc.function.DatabaseClient.BindSpec;
 import org.springframework.data.r2dbc.function.DatabaseClient.GenericExecuteSpec;
 import org.springframework.data.r2dbc.function.FetchSpec;
+import org.springframework.data.r2dbc.function.ReactiveDataAccessStrategy;
 import org.springframework.data.r2dbc.function.convert.MappingR2dbcConverter;
 import org.springframework.data.r2dbc.function.convert.SettableValue;
 import org.springframework.data.relational.repository.query.RelationalEntityInformation;
 import org.springframework.data.repository.reactive.ReactiveCrudRepository;
 import org.springframework.util.Assert;
-import reactor.core.publisher.Flux;
-import reactor.core.publisher.Mono;
 
 /**
  * Simple {@link ReactiveCrudRepository} implementation using R2DBC through {@link DatabaseClient}.
@@ -46,6 +55,7 @@ public class SimpleR2dbcRepository<T, ID> implements ReactiveCrudRepository<T, I
 	private final @NonNull RelationalEntityInformation<T, ID> entity;
 	private final @NonNull DatabaseClient databaseClient;
 	private final @NonNull MappingR2dbcConverter converter;
+	private final @NonNull ReactiveDataAccessStrategy accessStrategy;
 
 	/* (non-Javadoc)
 	 * @see org.springframework.data.repository.reactive.ReactiveCrudRepository#save(S)
@@ -64,49 +74,21 @@ public class SimpleR2dbcRepository<T, ID> implements ReactiveCrudRepository<T, I
 					.flatMap(it -> it.extract(converter.populateIdIfNecessary(objectToSave)).one());
 		}
 
-		// TODO: Extract in some kind of SQL generator
 		Object id = entity.getRequiredId(objectToSave);
-
 		Map<String, SettableValue> fields = converter.getFieldsToUpdate(objectToSave);
+		String idColumnName = getIdColumnName();
+		BindIdOperation update = accessStrategy.updateById(entity.getTableName(), fields.keySet(), idColumnName);
 
-		String setClause = getSetClause(fields);
+		GenericExecuteSpec exec = databaseClient.execute().sql(update);
 
-		GenericExecuteSpec exec = databaseClient.execute()
-				.sql(String.format("UPDATE %s SET %s WHERE %s = $1", entity.getTableName(), setClause, getIdColumnName())) //
-				.bind(0, id);
+		BindSpecWrapper<GenericExecuteSpec> wrapper = BindSpecWrapper.create(exec);
+		fields.forEach(bind(update, wrapper));
+		update.bindId(wrapper, id);
 
-		int index = 1;
-		for (SettableValue setValue : fields.values()) {
-
-			Object value = setValue.getValue();
-			if (value != null) {
-				exec = exec.bind(index++, value);
-			} else {
-				exec = exec.bindNull(index++, setValue.getType());
-			}
-		}
-
-		return exec.as(entity.getJavaType()) //
+		return wrapper.getBoundOperation().as(entity.getJavaType()) //
 				.exchange() //
 				.flatMap(FetchSpec::rowsUpdated) //
 				.thenReturn(objectToSave);
-	}
-
-	private static String getSetClause(Map<String, ?> fields) {
-
-		StringBuilder setClause = new StringBuilder();
-
-		int index = 2;
-		for (String field : fields.keySet()) {
-
-			if (setClause.length() != 0) {
-				setClause.append(", ");
-			}
-
-			setClause.append(field).append('=').append('$').append(index++);
-		}
-
-		return setClause.toString();
 	}
 
 	/* (non-Javadoc)
@@ -139,14 +121,17 @@ public class SimpleR2dbcRepository<T, ID> implements ReactiveCrudRepository<T, I
 
 		Assert.notNull(id, "Id must not be null!");
 
-		// TODO: Generate proper SQL (select, where clause, parameter binding).
-		return databaseClient.execute()
-				.sql(String.format("SELECT * FROM %s WHERE %s = $1", entity.getTableName(), getIdColumnName())) //
-				.bind("$1", id) //
-				.as(entity.getJavaType()) //
+		Set<String> fields = new LinkedHashSet<>(accessStrategy.getAllColumns(entity.getJavaType()));
+		String idColumnName = getIdColumnName();
+		BindIdOperation select = accessStrategy.selectById(entity.getTableName(), fields, idColumnName);
+
+		GenericExecuteSpec sql = databaseClient.execute().sql(select);
+		BindSpecWrapper<GenericExecuteSpec> wrapper = BindSpecWrapper.create(sql);
+		select.bindId(wrapper, id);
+
+		return wrapper.getBoundOperation().as(entity.getJavaType()) //
 				.fetch() //
 				.one();
-
 	}
 
 	/* (non-Javadoc)
@@ -165,11 +150,15 @@ public class SimpleR2dbcRepository<T, ID> implements ReactiveCrudRepository<T, I
 
 		Assert.notNull(id, "Id must not be null!");
 
-		// TODO: Generate proper SQL (select, where clause, parameter binding).
-		return databaseClient.execute()
-				.sql(String.format("SELECT %s FROM %s WHERE %s = $1 LIMIT 1", getIdColumnName(), entity.getTableName(),
-						getIdColumnName())) //
-				.bind("$1", id) //
+		String idColumnName = getIdColumnName();
+		BindIdOperation select = accessStrategy.selectById(entity.getTableName(), Collections.singleton(idColumnName),
+				idColumnName, 1);
+
+		GenericExecuteSpec sql = databaseClient.execute().sql(select);
+		BindSpecWrapper<GenericExecuteSpec> wrapper = BindSpecWrapper.create(sql);
+		select.bindId(wrapper, id);
+
+		return wrapper.getBoundOperation().as(entity.getJavaType()) //
 				.exchange() //
 				.flatMap(it -> it.extract((r, md) -> r).first()).hasElement();
 	}
@@ -335,5 +324,16 @@ public class SimpleR2dbcRepository<T, ID> implements ReactiveCrudRepository<T, I
 	private String getIdColumnName() {
 		return converter.getMappingContext().getRequiredPersistentEntity(entity.getJavaType()).getRequiredIdProperty()
 				.getColumnName();
+	}
+
+	private BiConsumer<String, SettableValue> bind(BindableOperation operation, Statement<?> statement) {
+
+		return (k, v) -> {
+			if (v.getValue() == null) {
+				operation.bindNull(statement, k, v.getType());
+			} else {
+				operation.bind(statement, k, v.getValue());
+			}
+		};
 	}
 }

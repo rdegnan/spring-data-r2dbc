@@ -38,7 +38,7 @@ public interface ReactiveDataAccessStrategy {
 	 * @param typeToRead
 	 * @return all field names for a specific type.
 	 */
-	List<String> getAllFields(Class<?> typeToRead);
+	List<String> getAllColumns(Class<?> typeToRead);
 
 	/**
 	 * @param object
@@ -73,4 +73,9 @@ public interface ReactiveDataAccessStrategy {
 	 */
 	BindableOperation insertAndReturnGeneratedKeys(String table, Set<String> columns);
 
+	BindIdOperation selectById(String tableName, Set<String> columns, String idColumnName);
+
+	BindIdOperation selectById(String tableName, Set<String> columns, String idColumnName, int limit);
+
+	BindIdOperation updateById(String tableName, Set<String> columns, String idColumnName);
 }
