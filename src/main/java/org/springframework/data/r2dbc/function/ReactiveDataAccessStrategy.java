@@ -19,13 +19,18 @@ import io.r2dbc.spi.Row;
 import io.r2dbc.spi.RowMetadata;
 
 import java.util.List;
+import java.util.Set;
 import java.util.function.BiFunction;
 
 import org.springframework.data.domain.Sort;
 import org.springframework.data.r2dbc.function.convert.SettableValue;
 
 /**
+ * Draft of a data access strategy that generalizes convenience operations using mapped entities. Typically used
+ * internally by {@link DatabaseClient} and repository support.
+ *
  * @author Mark Paluch
+ * @see BindableOperation
  */
 public interface ReactiveDataAccessStrategy {
 
@@ -39,7 +44,7 @@ public interface ReactiveDataAccessStrategy {
 	 * @param object
 	 * @return {@link SettableValue} that represent an {@code INSERT} of {@code object}.
 	 */
-	List<SettableValue> getInsert(Object object);
+	List<SettableValue> getValuesToInsert(Object object);
 
 	/**
 	 * Map the {@link Sort} object to apply field name mapping using {@link Class the type to read}.
@@ -58,4 +63,14 @@ public interface ReactiveDataAccessStrategy {
 	 * @return the table name for the {@link Class entity type}.
 	 */
 	String getTableName(Class<?> type);
+
+	/**
+	 * Create an {@code INSERT} operation for the given {@code table} to insert {@code columns}.
+	 *
+	 * @param table the table to insert data to.
+	 * @param columns column names that will be bound.
+	 * @return the {@link BindableOperation} representing the {@code INSERT} statement.
+	 */
+	BindableOperation insertAndReturnGeneratedKeys(String table, Set<String> columns);
+
 }

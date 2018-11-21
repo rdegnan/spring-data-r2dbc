@@ -34,14 +34,13 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.atomic.AtomicInteger;
+import java.util.Set;
 import java.util.function.BiFunction;
 import java.util.function.Function;
 import java.util.function.Supplier;
-import java.util.stream.Collectors;
-import java.util.stream.IntStream;
 
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
@@ -239,7 +238,7 @@ class DefaultDatabaseClient implements DatabaseClient, ConnectionAccessor {
 		return new DefaultGenericExecuteSpec(sqlSupplier);
 	}
 
-	private static void doBind(Statement statement, Map<String, SettableValue> byName,
+	private static void doBind(Statement<?> statement, Map<String, SettableValue> byName,
 			Map<Integer, SettableValue> byIndex) {
 
 		byIndex.forEach((i, o) -> {
@@ -308,13 +307,13 @@ class DefaultDatabaseClient implements DatabaseClient, ConnectionAccessor {
 
 		<T> SqlResult<T> exchange(String sql, BiFunction<Row, RowMetadata, T> mappingFunction) {
 
-			Function<Connection, Statement> executeFunction = it -> {
+			Function<Connection, Statement<?>> executeFunction = it -> {
 
 				if (logger.isDebugEnabled()) {
 					logger.debug("Executing SQL statement [" + sql + "]");
 				}
 
-				Statement statement = it.createStatement(sql);
+				Statement<?> statement = it.createStatement(sql);
 				doBind(statement, byName, byIndex);
 
 				return statement;
@@ -601,7 +600,7 @@ class DefaultDatabaseClient implements DatabaseClient, ConnectionAccessor {
 
 		<R> SqlResult<R> execute(String sql, BiFunction<Row, RowMetadata, R> mappingFunction) {
 
-			Function<Connection, Statement> selectFunction = it -> {
+			Function<Connection, Statement<?>> selectFunction = it -> {
 
 				if (logger.isDebugEnabled()) {
 					logger.debug("Executing SQL statement [" + sql + "]");
@@ -861,52 +860,35 @@ class DefaultDatabaseClient implements DatabaseClient, ConnectionAccessor {
 				throw new IllegalStateException("Insert fields is empty!");
 			}
 
-			StringBuilder builder = new StringBuilder();
-			String fieldNames = byName.keySet().stream().collect(Collectors.joining(","));
-			String placeholders = IntStream.range(0, byName.size()).mapToObj(i -> "$" + (i + 1))
-					.collect(Collectors.joining(","));
+			BindableOperation bindableInsert = dataAccessStrategy.insertAndReturnGeneratedKeys(table, byName.keySet());
 
-			builder.append("INSERT INTO ").append(table).append(" (").append(fieldNames).append(") ").append(" VALUES(")
-					.append(placeholders).append(") RETURNING *");
-
-			String sql = builder.toString();
+			String sql = bindableInsert.toQuery();
 			Function<Connection, Statement> insertFunction = it -> {
 
 				if (logger.isDebugEnabled()) {
 					logger.debug("Executing SQL statement [" + sql + "]");
 				}
-				Statement statement = it.createStatement(sql);
-				doBind(statement);
+
+				Statement<?> statement = it.createStatement(sql);
+
+				byName.forEach((k, v) -> {
+
+					if (v.getValue() == null) {
+						bindableInsert.bindNull(statement, k, v.getType());
+					} else {
+						bindableInsert.bind(statement, k, v.getValue());
+					}
+				});
 				return statement;
 			};
 
-			Function<Connection, Flux<Result>> resultFunction = it -> Flux
-					.from(insertFunction.apply(it).execute());
+			Function<Connection, Flux<Result>> resultFunction = it -> Flux.from(insertFunction.apply(it).execute());
 
 			return new DefaultSqlResult<>(DefaultDatabaseClient.this, //
 					sql, //
 					resultFunction, //
 					it -> resultFunction.apply(it).flatMap(Result::getRowsUpdated).next(), //
 					mappingFunction);
-		}
-
-		/**
-		 * PostgreSQL-specific bind.
-		 *
-		 * @param statement
-		 */
-		private void doBind(Statement statement) {
-
-			AtomicInteger index = new AtomicInteger();
-
-			for (SettableValue value : byName.values()) {
-
-				if (value.getValue() != null) {
-					statement.bind(index.getAndIncrement(), value.getValue());
-				} else {
-					statement.bindNull("$" + (index.getAndIncrement() + 1), value.getType());
-				}
-			}
 		}
 	}
 
@@ -963,18 +945,16 @@ class DefaultDatabaseClient implements DatabaseClient, ConnectionAccessor {
 
 		private <R> SqlResult<R> exchange(Object toInsert, BiFunction<Row, RowMetadata, R> mappingFunction) {
 
-			StringBuilder builder = new StringBuilder();
+			List<SettableValue> insertValues = dataAccessStrategy.getValuesToInsert(toInsert);
+			Set<String> columns = new LinkedHashSet<>();
 
-			List<SettableValue> insertValues = dataAccessStrategy.getInsert(toInsert);
-			String fieldNames = insertValues.stream().map(SettableValue::getIdentifier).map(Object::toString)
-					.collect(Collectors.joining(","));
-			String placeholders = IntStream.range(0, insertValues.size()).mapToObj(i -> "$" + (i + 1))
-					.collect(Collectors.joining(","));
+			for (SettableValue insertValue : insertValues) {
+				columns.add(insertValue.getIdentifier().toString());
+			}
 
-			builder.append("INSERT INTO ").append(table).append(" (").append(fieldNames).append(") ").append(" VALUES(")
-					.append(placeholders).append(") RETURNING *");
+			BindableOperation bindableInsert = dataAccessStrategy.insertAndReturnGeneratedKeys(table, columns);
 
-			String sql = builder.toString();
+			String sql = bindableInsert.toQuery();
 
 			Function<Connection, Statement> insertFunction = it -> {
 
@@ -982,16 +962,14 @@ class DefaultDatabaseClient implements DatabaseClient, ConnectionAccessor {
 					logger.debug("Executing SQL statement [" + sql + "]");
 				}
 
-				Statement statement = it.createStatement(sql);
-
-				AtomicInteger index = new AtomicInteger();
+				Statement<?> statement = it.createStatement(sql);
 
 				for (SettableValue settable : insertValues) {
 
-					if (settable.getValue() != null) {
-						statement.bind(index.getAndIncrement(), settable.getValue());
+					if (settable.getValue() == null) {
+						bindableInsert.bindNull(statement, settable.getIdentifier().toString(), settable.getType());
 					} else {
-						statement.bindNull("$" + (index.getAndIncrement() + 1), settable.getType());
+						bindableInsert.bind(statement, settable.getIdentifier().toString(), settable.getValue());
 					}
 				}
 

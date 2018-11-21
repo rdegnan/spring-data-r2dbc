@@ -38,9 +38,10 @@ import org.springframework.context.annotation.ComponentScan.Filter;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.FilterType;
 import org.springframework.data.annotation.Id;
+import org.springframework.data.r2dbc.config.AbstractR2dbcConfiguration;
+import org.springframework.data.r2dbc.dialect.PostgresDialect;
 import org.springframework.data.r2dbc.function.DefaultReactiveDataAccessStrategy;
 import org.springframework.data.r2dbc.function.TransactionalDatabaseClient;
-import org.springframework.data.r2dbc.repository.config.AbstractR2dbcConfiguration;
 import org.springframework.data.r2dbc.repository.config.EnableR2dbcRepositories;
 import org.springframework.data.r2dbc.repository.query.Query;
 import org.springframework.data.r2dbc.repository.support.R2dbcRepositoryFactory;
@@ -150,7 +151,8 @@ public class R2dbcRepositoryIntegrationTests extends R2dbcIntegrationTestSupport
 
 		TransactionalDatabaseClient client = TransactionalDatabaseClient.builder()
 				.connectionFactory(createConnectionFactory())
-				.dataAccessStrategy(new DefaultReactiveDataAccessStrategy(new BasicRelationalConverter(mappingContext)))
+				.dataAccessStrategy(new DefaultReactiveDataAccessStrategy(PostgresDialect.INSTANCE,
+						new BasicRelationalConverter(mappingContext)))
 				.build();
 
 		LegoSetRepository transactionalRepository = new R2dbcRepositoryFactory(client, mappingContext)

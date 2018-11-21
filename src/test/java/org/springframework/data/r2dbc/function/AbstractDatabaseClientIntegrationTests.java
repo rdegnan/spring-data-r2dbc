@@ -33,11 +33,11 @@ import org.springframework.data.relational.core.mapping.Table;
 import org.springframework.jdbc.core.JdbcTemplate;
 
 /**
- * Integration tests for {@link DatabaseClient} against PostgreSQL.
+ * Integration tests for {@link DatabaseClient}.
  *
  * @author Mark Paluch
  */
-public class DatabaseClientIntegrationTests extends R2dbcIntegrationTestSupport {
+public abstract class AbstractDatabaseClientIntegrationTests extends R2dbcIntegrationTestSupport {
 
 	private ConnectionFactory connectionFactory;
 
@@ -50,21 +50,36 @@ public class DatabaseClientIntegrationTests extends R2dbcIntegrationTestSupport 
 
 		connectionFactory = createConnectionFactory();
 
-		String tableToCreate = "CREATE TABLE IF NOT EXISTS legoset (\n"
-				+ "    id          integer CONSTRAINT id PRIMARY KEY,\n" + "    name        varchar(255) NOT NULL,\n"
-				+ "    manual      integer NULL\n" + ");";
-
 		jdbc = createJdbcTemplate(createDataSource());
-		jdbc.execute(tableToCreate);
+		jdbc.execute(getCreateTableStatement());
 		jdbc.execute("DELETE FROM legoset");
 	}
+
+	/**
+	 * Returns the the CREATE TABLE statement for table {@code legoset} with the following three columns:
+	 * <ul>
+	 * <li>id integer (primary key), not null</li>
+	 * <li>name varchar(255), nullable</li>
+	 * <li>manual integer, nullable</li>
+	 * </ul>
+	 *
+	 * @return the CREATE TABLE statement for table {@code legoset} with three columns.
+	 */
+	protected abstract String getCreateTableStatement();
+
+	/**
+	 * Get a parameterized {@code INSERT INTO legoset} statement setting id, name, and manual values.
+	 *
+	 * @return
+	 */
+	protected abstract String getInsertIntoLegosetStatement();
 
 	@Test
 	public void executeInsert() {
 
 		DatabaseClient databaseClient = DatabaseClient.create(connectionFactory);
 
-		databaseClient.execute().sql("INSERT INTO legoset (id, name, manual) VALUES($1, $2, $3)") //
+		databaseClient.execute().sql(getInsertIntoLegosetStatement()) //
 				.bind(0, 42055) //
 				.bind(1, "SCHAUFELRADBAGGER") //
 				.bindNull("$3", Integer.class) //
@@ -83,7 +98,7 @@ public class DatabaseClientIntegrationTests extends R2dbcIntegrationTestSupport 
 
 		executeInsert();
 
-		databaseClient.execute().sql("INSERT INTO legoset (id, name, manual) VALUES($1, $2, $3)") //
+		databaseClient.execute().sql(getInsertIntoLegosetStatement()) //
 				.bind(0, 42055) //
 				.bind(1, "SCHAUFELRADBAGGER") //
 				.bindNull("$3", Integer.class) //
@@ -104,7 +119,6 @@ public class DatabaseClientIntegrationTests extends R2dbcIntegrationTestSupport 
 
 		DatabaseClient databaseClient = DatabaseClient.create(connectionFactory);
 
-		// TODO: Driver/Decode does not support decoding null values?
 		databaseClient.execute().sql("SELECT id, name, manual FROM legoset") //
 				.as(LegoSet.class) //
 				.fetch().all() //

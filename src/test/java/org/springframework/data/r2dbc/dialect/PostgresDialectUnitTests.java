@@ -19,7 +19,7 @@ public class PostgresDialectUnitTests {
 		BindMarker first = bindMarkers.next();
 		BindMarker second = bindMarkers.next("foo");
 
-		assertThat(first.getPlaceholder()).isEqualTo("$0");
-		assertThat(second.getPlaceholder()).isEqualTo("$1");
+		assertThat(first.getPlaceholder()).isEqualTo("$1");
+		assertThat(second.getPlaceholder()).isEqualTo("$2");
 	}
 }
